@@ -20,6 +20,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [workspaceDir, setWorkspaceDir] = useState(settings.workspaceDir);
   const [activeProvider, setActiveProvider] = useState(settings.activeProvider);
   const [activeModel, setActiveModel] = useState(settings.activeModel);
+  const [nvidiaKey, setNvidiaKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
@@ -36,6 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         workspaceDir,
         activeProvider,
         activeModel,
+        nvidiaKey: nvidiaKey.trim() || undefined,
         geminiKey: geminiKey.trim() || undefined,
         openaiKey: openaiKey.trim() || undefined,
         anthropicKey: anthropicKey.trim() || undefined,
@@ -131,6 +133,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>NVIDIA NIM API Key {settings.apiKeySet.nvidia ? ' (Configured ✓)' : ''}</span>
+                  <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active</span>
+                </label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder={settings.apiKeySet.nvidia ? '••••••••••••••••' : 'nvapi-...'}
+                  value={nvidiaKey}
+                  onChange={(e) => setNvidiaKey(e.target.value)}
+                />
+              </div>
+
               <div className="form-group">
                 <label>
                   Google Gemini API Key {settings.apiKeySet.gemini ? ' (Configured ✓)' : ''}

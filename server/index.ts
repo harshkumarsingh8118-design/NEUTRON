@@ -98,6 +98,7 @@ app.get('/api/settings', (req: Request, res: Response) => {
     ...currentSettings,
     workspaceDir: workspaceManager.getWorkspaceDir(),
     apiKeySet: {
+      nvidia: !!config.providers.nvidiaApiKey,
       gemini: !!config.providers.geminiApiKey,
       openai: !!config.providers.openaiApiKey,
       anthropic: !!config.providers.anthropicApiKey,
@@ -107,7 +108,7 @@ app.get('/api/settings', (req: Request, res: Response) => {
 });
 
 app.post('/api/settings', (req: Request, res: Response) => {
-  const { workspaceDir, activeProvider, activeModel, geminiKey, openaiKey, anthropicKey, groqKey, autoApproveSafe } = req.body;
+  const { workspaceDir, activeProvider, activeModel, nvidiaKey, nvidiaBaseUrl, nvidiaModel, geminiKey, openaiKey, anthropicKey, groqKey, autoApproveSafe } = req.body;
 
   if (workspaceDir && typeof workspaceDir === 'string') {
     try {
@@ -118,6 +119,9 @@ app.post('/api/settings', (req: Request, res: Response) => {
     }
   }
 
+  if (nvidiaKey) config.providers.nvidiaApiKey = nvidiaKey;
+  if (nvidiaBaseUrl) config.providers.nvidiaBaseUrl = nvidiaBaseUrl;
+  if (nvidiaModel) config.providers.nvidiaModel = nvidiaModel;
   if (geminiKey) config.providers.geminiApiKey = geminiKey;
   if (openaiKey) config.providers.openaiApiKey = openaiKey;
   if (anthropicKey) config.providers.anthropicApiKey = anthropicKey;
@@ -131,6 +135,7 @@ app.post('/api/settings', (req: Request, res: Response) => {
     activeModel: activeModel || config.activeModel,
     autoApproveSafe: autoApproveSafe !== undefined ? autoApproveSafe : store.getSettings().autoApproveSafe,
     apiKeySet: {
+      nvidia: !!config.providers.nvidiaApiKey,
       gemini: !!config.providers.geminiApiKey,
       openai: !!config.providers.openaiApiKey,
       anthropic: !!config.providers.anthropicApiKey,

@@ -38,12 +38,13 @@ export const App: React.FC = () => {
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<AppSettings>({
-    activeProvider: 'gemini',
-    activeModel: 'gemini-2.5-flash',
+    activeProvider: 'nvidia',
+    activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
     workspaceDir: '',
     theme: 'dark',
     autoApproveSafe: true,
     apiKeySet: {
+      nvidia: false,
       gemini: false,
       openai: false,
       anthropic: false,

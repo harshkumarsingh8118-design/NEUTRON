@@ -94,6 +94,7 @@ export interface AppSettings {
   theme: 'dark';
   autoApproveSafe: boolean;
   apiKeySet: {
+    nvidia: boolean;
     gemini: boolean;
     openai: boolean;
     anthropic: boolean;

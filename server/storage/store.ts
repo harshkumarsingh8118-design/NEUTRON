@@ -80,6 +80,7 @@ export interface AppSettings {
   theme: 'dark';
   autoApproveSafe: boolean;
   apiKeySet: {
+    nvidia: boolean;
     gemini: boolean;
     openai: boolean;
     anthropic: boolean;
@@ -110,12 +111,13 @@ export class DataStore {
     }
     if (!fs.existsSync(this.settingsFile)) {
       const defaultSettings: AppSettings = {
-        activeProvider: 'gemini',
-        activeModel: 'gemini-2.5-flash',
+        activeProvider: process.env.DEFAULT_PROVIDER || (process.env.NVIDIA_API_KEY ? 'nvidia' : 'gemini'),
+        activeModel: process.env.DEFAULT_MODEL || (process.env.NVIDIA_MODEL || (process.env.NVIDIA_API_KEY ? 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' : 'gemini-2.5-flash')),
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
         apiKeySet: {
+          nvidia: !!process.env.NVIDIA_API_KEY,
           gemini: !!process.env.GEMINI_API_KEY,
           openai: !!process.env.OPENAI_API_KEY,
           anthropic: !!process.env.ANTHROPIC_API_KEY,
@@ -185,15 +187,23 @@ export class DataStore {
   getSettings(): AppSettings {
     try {
       const raw = fs.readFileSync(this.settingsFile, 'utf8');
-      return JSON.parse(raw);
+      const parsed: AppSettings = JSON.parse(raw);
+      if (process.env.NVIDIA_API_KEY && (parsed.activeProvider === 'neutron-builtin' || !parsed.activeProvider)) {
+        parsed.activeProvider = 'nvidia';
+        parsed.activeModel = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
+        parsed.apiKeySet = { ...parsed.apiKeySet, nvidia: true };
+        this.saveSettings(parsed);
+      }
+      return parsed;
     } catch {
       return {
-        activeProvider: 'gemini',
-        activeModel: 'gemini-2.5-flash',
+        activeProvider: process.env.DEFAULT_PROVIDER || (process.env.NVIDIA_API_KEY ? 'nvidia' : 'gemini'),
+        activeModel: process.env.DEFAULT_MODEL || (process.env.NVIDIA_MODEL || (process.env.NVIDIA_API_KEY ? 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' : 'gemini-2.5-flash')),
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
         apiKeySet: {
+          nvidia: !!process.env.NVIDIA_API_KEY,
           gemini: !!process.env.GEMINI_API_KEY,
           openai: !!process.env.OPENAI_API_KEY,
           anthropic: !!process.env.ANTHROPIC_API_KEY,

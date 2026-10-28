@@ -25,6 +25,17 @@ export class AIProviderService {
   static getProviders(): ModelProviderInfo[] {
     return [
       {
+        id: 'nvidia',
+        name: 'NVIDIA NIM',
+        isConfigured: !!config.providers.nvidiaApiKey,
+        models: [
+          { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning', name: 'Nemotron 3 Nano Omni 30B (Reasoning)', description: 'NVIDIA reasoning model with chain-of-thought omni capabilities' },
+          { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Llama 3.1 Nemotron 70B', description: 'High-capability instruction model tuned by NVIDIA for complex coding & reasoning' },
+          { id: 'nvidia/nemotron-4-340b-instruct', name: 'Nemotron 4 340B Instruct', description: 'Frontier scale reasoning model for enterprise coding tasks' },
+          { id: 'deepseek-ai/deepseek-v4.1-flash', name: 'DeepSeek v4.1 Flash (NVIDIA NIM)', description: 'Ultra-fast inference speed via NVIDIA NIM architecture' },
+        ],
+      },
+      {
         id: 'gemini',
         name: 'Google Gemini',
         isConfigured: !!config.providers.geminiApiKey,
@@ -91,11 +102,32 @@ export class AIProviderService {
     model: string,
     callbacks: StreamCallbacks
   ): Promise<string> {
-    const activeProvider = provider || config.activeProvider;
-    const activeModel = model || config.activeModel;
+    let activeProvider = provider || config.activeProvider;
+    let activeModel = model || config.activeModel;
+
+    // Prefer NVIDIA NIM if configured or if client requested builtin/default
+    if ((activeProvider === 'neutron-builtin' || !activeProvider) && config.providers.nvidiaApiKey) {
+      activeProvider = 'nvidia';
+      activeModel = config.activeModel || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
+    }
 
     // Check if provider is configured, otherwise fallback to builtin
-    if (activeProvider === 'gemini' && config.providers.geminiApiKey) {
+    if (activeProvider === 'nvidia' && config.providers.nvidiaApiKey) {
+      try {
+        return await this.streamNvidia(
+          messages,
+          systemPrompt,
+          activeModel,
+          config.providers.nvidiaApiKey,
+          config.providers.nvidiaBaseUrl || 'https://integrate.api.nvidia.com/v1',
+          callbacks
+        );
+      } catch (err: any) {
+        console.error('[NEUTRON AI] NVIDIA NIM error:', err.message);
+        callbacks.onChunk(`> ⚠️ **NVIDIA NIM Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`);
+        return this.streamBuiltin(messages, systemPrompt, callbacks);
+      }
+    } else if (activeProvider === 'gemini' && config.providers.geminiApiKey) {
       try {
         return await this.streamGemini(messages, systemPrompt, activeModel, config.providers.geminiApiKey, callbacks);
       } catch (err: any) {
@@ -422,6 +454,138 @@ export class AIProviderService {
   }
 
   /**
+   * NVIDIA NIM Streaming implementation with chain-of-thought omni-reasoning support
+   */
+  private static async streamNvidia(
+    messages: ModelMessage[],
+    systemPrompt: string,
+    model: string,
+    apiKey: string,
+    baseUrl: string,
+    callbacks: StreamCallbacks
+  ): Promise<string> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const formattedMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+
+    const modelName = model || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
+    let response: Response | null = null;
+    let lastError: Error | null = null;
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: formattedMessages,
+            temperature: 0.2,
+            max_tokens: 4096,
+            stream: true,
+          }),
+        });
+
+        if (response.ok) {
+          break;
+        }
+
+        const errText = await response.text();
+        if ((response.status === 503 || response.status === 429) && attempt < maxAttempts) {
+          console.warn(`[NVIDIA NIM] Worker busy/rate-limit (${response.status}) on attempt ${attempt}/${maxAttempts}. Retrying in 1.5s...`);
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+
+        throw new Error(`NVIDIA NIM API Error (${response.status}): ${errText}`);
+      } catch (err: any) {
+        lastError = err;
+        if (attempt < maxAttempts && !err.message?.includes('401') && !err.message?.includes('403')) {
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw lastError || new Error('Failed to connect to NVIDIA NIM');
+    }
+
+    return this.readNvidiaStream(response, callbacks);
+  }
+
+  /**
+   * SSE reader for NVIDIA NIM with support for both reasoning_content and content deltas
+   */
+  private static async readNvidiaStream(response: Response, callbacks: StreamCallbacks): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No readable stream from NVIDIA NIM API');
+
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    let inReasoning = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            const delta = data.choices?.[0]?.delta;
+            if (!delta) continue;
+
+            // Handle reasoning delta (e.g. from Nemotron reasoning models)
+            if (delta.reasoning_content) {
+              if (!inReasoning) {
+                inReasoning = true;
+                const header = '> 🧠 **Thinking Process:**\n> ';
+                fullText += header;
+                callbacks.onChunk(header);
+              }
+              const formattedReasoning = delta.reasoning_content.replace(/\n/g, '\n> ');
+              fullText += formattedReasoning;
+              callbacks.onChunk(formattedReasoning);
+            }
+
+            // Handle standard content delta
+            if (delta.content) {
+              if (inReasoning) {
+                inReasoning = false;
+                const separator = '\n\n---\n\n';
+                fullText += separator;
+                callbacks.onChunk(separator);
+              }
+              fullText += delta.content;
+              callbacks.onChunk(delta.content);
+            }
+          } catch {
+            // Ignore parse errors on incomplete chunks
+          }
+        }
+      }
+    }
+
+    if (callbacks.onDone) callbacks.onDone();
+    return fullText;
+  }
+
+  /**
    * Generic SSE reader for OpenAI format
    */
   private static async readSSEStream(response: Response, callbacks: StreamCallbacks): Promise<string> {
@@ -446,7 +610,7 @@ export class AIProviderService {
           if (jsonStr === '[DONE]') continue;
           try {
             const data = JSON.parse(jsonStr);
-            const chunk = data.choices?.[0]?.delta?.content || '';
+            const chunk = data.choices?.[0]?.delta?.content || data.choices?.[0]?.delta?.reasoning_content || '';
             if (chunk) {
               fullText += chunk;
               callbacks.onChunk(chunk);
@@ -462,360 +626,27 @@ export class AIProviderService {
   }
 
   /**
-   * Built-in intelligent conversational and coding engine
+   * Built-in fallback engine - routes to NVIDIA NIM if available
    */
   private static async streamBuiltin(
     messages: ModelMessage[],
-    _systemPrompt: string,
+    systemPrompt: string,
     callbacks: StreamCallbacks
   ): Promise<string> {
-    const lastMsg = messages[messages.length - 1]?.content || '';
-    const query = lastMsg.trim().toLowerCase();
-
-    let reply = '';
-
-    // 1. "How are you" & check-ins
-    if (
-      query.includes('how are you') ||
-      query.includes("how's it going") ||
-      query.includes("hows it going") ||
-      query.includes("how are things") ||
-      query.includes("how you doing") ||
-      query.includes("how's your day") ||
-      query.includes("hows your day")
-    ) {
-      reply = `I'm doing great, thanks for asking! 😊 How are you doing today? What are you working on?`;
-    }
-    // 2. Greetings and pleasantries
-    else if (
-      /^(hi|hello|hey|greetings|sup|yo|hiya)[\s!?.]*$/i.test(query) ||
-      query.startsWith('hi ') ||
-      query.startsWith('hello ') ||
-      query.startsWith('hey ')
-    ) {
-      reply = `Hey! Great to see you. How are you doing today?`;
-    }
-    else if (/^(good\s+(morning|afternoon|evening|day))[\s!?.]*$/i.test(query)) {
-      reply = `Good day to you! Hope you're having a wonderful day. What are you building or exploring today?`;
-    }
-    // 3. Thank you & appreciation
-    else if (query.includes('thank') || query.includes('thx') || query.includes('appreciate')) {
-      reply = `You're very welcome! I'm always happy to help. Let me know whenever you'd like to chat or code!`;
-    }
-    // 4. Casual check-in: what's up
-    else if (
-      query.includes("what's up") ||
-      query.includes("whats up") ||
-      query.includes("what is up") ||
-      query.includes('what are you doing') ||
-      query === 'sup'
-    ) {
-      reply = `Not much, just hanging out and excited to help you code, chat, or brainstorm! What's on your mind?`;
-    }
-    // 5. Jokes & casual banter
-    else if (query.includes('joke') || query.includes('make me laugh') || query.includes('something funny')) {
-      reply = `Here's one for you: Why do programmers always prefer dark mode? Because light attracts bugs! 😄 Have you got any cool projects you're tinkering with today?`;
-    }
-    // 6. Fatigue / taking a break
-    else if (query.includes('tired') || query.includes('exhausted') || query.includes('need a break')) {
-      reply = `I hear you! Coding takes serious mental energy. Go grab some water, stretch, or take a little breather — your code will still be here whenever you're ready!`;
-    }
-    // 7. Feedback about wanting both coding agent and chatbot / conversation
-    else if (
-      query.includes('work like') ||
-      query.includes('chatbot') ||
-      query.includes('normal conversation') ||
-      query.includes('share problem') ||
-      query.includes('assistant to chat')
-    ) {
-      reply = `I'd love to! We can chat casually about anything, brainstorm ideas, troubleshoot bugs together, or dive into real code whenever you're ready. What would you like to talk about?`;
-    }
-    // 8. Sharing a problem or debugging question
-    else if (
-      query.includes('problem') ||
-      query.includes('stuck') ||
-      query.includes('help me with') ||
-      query.includes('my code') ||
-      query.includes('not working') ||
-      query.includes('issue') ||
-      query.includes('failing') ||
-      query.includes('crash')
-    ) {
-      reply = `Don't stress, we'll sort it out together! Feel free to paste your code or error message, and tell me what you're trying to do.`;
-    }
-    // 9. Identity and capabilities
-    else if (query.includes('who are you') || query.includes('what are you') || query.includes('your name')) {
-      reply = `I am **NEUTRON**, your AI coding companion and personal assistant. Think of me as your friendly pair-programmer and friend — I can chat, troubleshoot code, and help you build cool things!`;
-    }
-    // 5. Code Generation: Calculator
-    else if (query.includes('calculator') || query.includes('calc')) {
-      reply = `Here is a complete, working calculator in Python with all basic operations, power, and zero-division handling:
-
-\`\`\`python
-class Calculator:
-    def add(self, a: float, b: float) -> float:
-        return a + b
-
-    def subtract(self, a: float, b: float) -> float:
-        return a - b
-
-    def multiply(self, a: float, b: float) -> float:
-        return a * b
-
-    def divide(self, a: float, b: float) -> float:
-        if b == 0:
-            raise ZeroDivisionError("Cannot divide by zero!")
-        return a / b
-
-    def power(self, a: float, b: float) -> float:
-        return a ** b
-
-# Demo run & tests
-calc = Calculator()
-print("Addition (15 + 7):", calc.add(15, 7))          # 22
-print("Subtraction (50 - 18):", calc.subtract(50, 18))  # 32
-print("Multiplication (6 * 8):", calc.multiply(6, 8))   # 48
-print("Division (80 / 4):", calc.divide(80, 4))        # 20.0
-print("Power (2 ^ 5):", calc.power(2, 5))              # 32
-\`\`\`
-
-If you'd like me to build and run this directly in your workspace sandbox, you can switch to **Agent Mode** or tell me *"build a calculator file"*!`;
-    }
-    // 6. Code Generation: Algorithms & Fibonacci
-    else if (query.includes('fibonacci') || query.includes('fib')) {
-      reply = `Here is an optimal Fibonacci implementation in Python with memoization ($O(n)$ time complexity):
-
-\`\`\`python
-from functools import lru_cache
-
-@lru_cache(maxsize=None)
-def fibonacci(n: int) -> int:
-    """Calculates the nth Fibonacci number efficiently."""
-    if n < 0:
-        raise ValueError("n must be non-negative")
-    if n in (0, 1):
-        return n
-    return fibonacci(n - 1) + fibonacci(n - 2)
-
-# Generate first 10 Fibonacci numbers:
-fib_sequence = [fibonacci(i) for i in range(10)]
-print("First 10 Fibonacci numbers:", fib_sequence)
-# Output: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
-\`\`\`
-
-Would you like me to adapt this to JavaScript, C, or Java?`;
-    }
-    // 7. General Code Generation: "build code for me", "give me code", "write code"
-    else if (
-      query.includes('build code') ||
-      query.includes('write code') ||
-      query.includes('give me code') ||
-      query.includes('get code') ||
-      query.includes('make code') ||
-      query.includes('create code') ||
-      query.includes('show code') ||
-      query.includes('python code') ||
-      query.includes('javascript code') ||
-      query.includes('code for')
-    ) {
-      reply = `Here is a complete, clean Python utility script ready to run:
-
-\`\`\`python
-import json
-import time
-
-def process_records(items):
-    """Cleans, filters, and calculates summary metrics on input records."""
-    valid_numbers = [x for x in items if isinstance(x, (int, float))]
-    
-    return {
-        "status": "SUCCESS",
-        "processed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "total_count": len(items),
-        "valid_count": len(valid_numbers),
-        "sum": sum(valid_numbers),
-        "average": round(sum(valid_numbers) / len(valid_numbers), 2) if valid_numbers else 0,
-        "sorted": sorted(valid_numbers)
+    if (config.providers.nvidiaApiKey) {
+      return this.streamNvidia(
+        messages,
+        systemPrompt,
+        config.activeModel || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+        config.providers.nvidiaApiKey,
+        config.providers.nvidiaBaseUrl || 'https://integrate.api.nvidia.com/v1',
+        callbacks
+      );
     }
 
-# Example run:
-sample_data = [12, 45, "invalid", 78, 3, 99, None, 24]
-result = process_records(sample_data)
-print(json.dumps(result, indent=2))
-\`\`\`
-
-What specific language, algorithm, or application would you like me to build for you next?`;
-    }
-    // 8. Capabilities / What can you do
-    else if (query.includes('what can you do') || query === 'help') {
-      reply = `### What NEUTRON Can Do
-
-I operate in two core workflows:
-
-#### 1. Autonomous Coding Agent Mode
-- **Java Development**: Write programs, sorting algorithms, OOP hierarchies, and compile/run with the native Java compiler.
-- **Python Scripting**: Build data pipelines, fix bugs, run test assertions, and handle edge cases.
-- **C / C++ Programs**: Compile with GCC, execute binary tests, and diagnose memory/pointer issues.
-- **Web Development**: Build responsive landing pages and modern React components.
-- **Project Inspection**: Scan authorized directories, detect project frameworks, and search codebase files.
-
-#### 2. Personal Assistant & Conversational Mode
-- **Concept Explanations**: Explain technical concepts like recursion, async/await, closures, or time complexity in plain English.
-- **Code Walkthroughs**: Review snippets line by line.
-- **Problem Brainstorming**: Discuss architecture, database design, and algorithmic approaches.
-- **Learning & Tutoring**: Provide beginner-friendly exercises with solutions.
-
-> **Tip**: You can switch between **Coding Agent** and **Assistant** modes in the top bar. You can also connect a live model like **Gemini 2.5 Flash** or **GPT-4o** in **Settings**.`;
-    }
-    // 6. Programming concept: Async / Await
-    else if (query.includes('async') || query.includes('await') || query.includes('promise')) {
-      reply = `### Understanding Async/Await in JavaScript
-
-**\`async\`** and **\`await\`** make asynchronous code (like fetching data, reading files, or timers) read and behave just like synchronous, line-by-line code.
-
-#### 1. The Core Idea
-- A function marked \`async\` always returns a **Promise**.
-- The \`await\` keyword pauses execution of that function until the Promise resolves, then returns its value.
-
-#### 2. Example: Fetching User Data
-\`\`\`javascript
-// Clean async/await syntax with error handling
-async function fetchUserProfile(userId) {
-    try {
-        console.log("Fetching user profile...");
-        const response = await fetch(\`https://api.example.com/users/\${userId}\`);
-        
-        if (!response.ok) {
-            throw new Error(\`HTTP error! status: \${response.status}\`);
-        }
-        
-        const userData = await response.json();
-        console.log("Profile retrieved:", userData.name);
-        return userData;
-    } catch (error) {
-        console.error("Failed to load profile:", error.message);
-        throw error;
-    }
-}
-\`\`\`
-
-#### Key Benefits:
-1. **No "Callback Hell"**: Eliminates deeply nested \`.then()\` chains.
-2. **Standard Error Handling**: You can use familiar \`try / catch\` blocks instead of \`.catch()\`.
-3. **Easy Debugging**: Stack traces point to the exact line where an error occurred.`;
-    }
-    // 7. Programming concept: Recursion
-    else if (query.includes('recursion')) {
-      reply = `### Understanding Recursion
-
-**Recursion** is a programming technique where a function calls itself to solve smaller instances of the same problem, until it reaches a designated stopping condition known as the **base case**.
-
-#### The Two Golden Rules:
-1. **Base Case**: The condition where the function stops calling itself and returns a direct result (prevents infinite loops / stack overflow).
-2. **Recursive Step**: The function breaks the problem down and calls itself with modified arguments moving toward the base case.
-
-#### Example: Calculating Factorial in Python
-\`\`\`python
-def factorial(n):
-    # 1. Base case: 0! = 1 and 1! = 1
-    if n <= 1:
-        return 1
-    # 2. Recursive step: n! = n * (n - 1)!
-    return n * factorial(n - 1)
-
-print(factorial(5))  # Output: 120 (5 * 4 * 3 * 2 * 1)
-\`\`\`
-
-#### Visualizing the Call Stack:
-\`\`\`
-factorial(5)
-  -> 5 * factorial(4)
-    -> 4 * factorial(3)
-      -> 3 * factorial(2)
-        -> 2 * factorial(1)
-          -> returns 1
-        -> returns 2 * 1 = 2
-      -> returns 3 * 2 = 6
-    -> returns 4 * 6 = 24
-  -> returns 5 * 24 = 120
-\`\`\`
-
-Would you like an example of recursion in trees, arrays, or binary search?`;
-    }
-    // 8. Programming concept: Arrays / Java sorting
-    else if (query.includes('sort') && (query.includes('java') || query.includes('array'))) {
-      reply = `### Java Array Sorting Implementation
-
-Here is an optimized Java solution implementing **Dual-Pivot QuickSort** with an automated verification test in \`ArraySorter.java\`:
-
-\`\`\`java
-import java.util.Arrays;
-
-/**
- * ArraySorter demonstrates array sorting techniques in Java.
- */
-public class ArraySorter {
-    public static void main(String[] args) {
-        int[] numbers = { 64, 34, 25, 12, 22, 11, 90, 5, 88, 42 };
-        
-        System.out.println("Original Array: " + Arrays.toString(numbers));
-        
-        // Sorting the array using Dual-Pivot Quicksort
-        Arrays.sort(numbers);
-        
-        System.out.println("Sorted Array (Ascending): " + Arrays.toString(numbers));
-        
-        // Verification assertion
-        boolean isSorted = true;
-        for (int i = 0; i < numbers.length - 1; i++) {
-            if (numbers[i] > numbers[i + 1]) {
-                isSorted = false;
-                break;
-            }
-        }
-        System.out.println("Verification Check: " + (isSorted ? "[PASSED] Correctly Ordered" : "[FAILED]"));
-    }
-}
-\`\`\`
-
-**Time & Space Complexity:**
-- **Average Time:** $O(n \\log n)$
-- **Worst Case:** $O(n^2)$
-- **Space:** $O(\\log n)$ stack memory
-
-When in **Coding Agent Mode**, I can write this file directly into your workspace and run \`javac\` and \`java\` to verify it natively.`;
-    }
-    // 9. General conversational answer
-    else {
-      reply = `I'm right here with you! What's on your mind today, or what would you like to build?`;
-    }
-
-    // Natural ChatGPT-like token streaming cadence
-    const words = reply.split(' ');
-    let output = '';
-
-    // Subtle initial thinking pause like ChatGPT
-    await new Promise((resolve) => setTimeout(resolve, 140));
-
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i];
-      const part = (i === words.length - 1) ? word : word + ' ';
-      output += part;
-      callbacks.onChunk(part);
-
-      // Natural conversational pacing like ChatGPT
-      let delay = 68; // ~14 words/second comfortable human reading speed
-      if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) {
-        delay = 240; // Thoughtful pause at sentence end
-      } else if (word.endsWith(',') || word.endsWith(';') || word.endsWith(':')) {
-        delay = 120; // Subtle clause pause
-      } else if (word.includes('\n')) {
-        delay = 180; // Paragraph / line break pause
-      }
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-
+    const notice = `⚠️ **No Active AI Provider Configured**\n\nPlease configure your **NVIDIA API Key** in \`.env\` or the Settings panel to receive live responses from \`${config.activeModel}\`.`;
+    callbacks.onChunk(notice);
     if (callbacks.onDone) callbacks.onDone();
-    return output;
+    return notice;
   }
 }
