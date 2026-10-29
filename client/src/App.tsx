@@ -39,7 +39,7 @@ export const App: React.FC = () => {
 
   const [settings, setSettings] = useState<AppSettings>({
     activeProvider: 'nvidia',
-    activeModel: 'nvidia/nemotron-3-ultra-550b-a55b',
+    activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
     workspaceDir: '',
     theme: 'dark',
     autoApproveSafe: true,
@@ -62,10 +62,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
     loadSettings();
-    loadConversations();
+    loadConversations(true);
     loadModels();
     loadWorkspace();
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -92,16 +92,38 @@ export const App: React.FC = () => {
     }
   };
 
-  const loadConversations = async () => {
+  const loadConversations = async (forceResetActive = false) => {
     try {
       const list = await api.fetchConversations();
       setConversations(list);
-      if (list.length > 0 && !activeConversationId) {
-        setActiveConversationId(list[0].id);
-        setMessages(list[0].messages || []);
+      if (list.length > 0) {
+        const exists = list.find((c) => c.id === activeConversationId);
+        if (!exists || forceResetActive) {
+          setActiveConversationId(list[0].id);
+          setMessages(list[0].messages || []);
+          const lastAssistant = [...(list[0].messages || [])].reverse().find((m) => m.role === 'assistant');
+          if (lastAssistant?.plan) {
+            setTaskSteps(lastAssistant.plan.steps);
+            setCurrentGoal(lastAssistant.plan.goal);
+          } else {
+            setTaskSteps([]);
+            setCurrentGoal('');
+          }
+        }
+      } else {
+        // New account with 0 conversations: start completely fresh!
+        setActiveConversationId(null);
+        setMessages([]);
+        setTaskSteps([]);
+        setTaskDiffs([]);
+        setTaskCommands([]);
+        setCurrentGoal('');
       }
     } catch (err) {
       console.error('Failed to load conversations:', err);
+      setConversations([]);
+      setActiveConversationId(null);
+      setMessages([]);
     }
   };
 
@@ -401,6 +423,16 @@ export const App: React.FC = () => {
   }, []);
 
   const handleAuthenticated = (user: AuthUser, token: string, remember: boolean) => {
+    // Clear old user conversation and workspace state immediately before setting new user
+    setConversations([]);
+    setActiveConversationId(null);
+    setMessages([]);
+    setTaskSteps([]);
+    setTaskDiffs([]);
+    setTaskCommands([]);
+    setCurrentGoal('');
+    setWorkspaceTree([]);
+
     setCurrentUser(user);
     try {
       const storage = remember ? localStorage : sessionStorage;
@@ -412,7 +444,20 @@ export const App: React.FC = () => {
   };
 
   const handleSignOut = () => {
+    if (abortStreamRef.current) {
+      abortStreamRef.current();
+      abortStreamRef.current = null;
+    }
+    setIsStreaming(false);
     setCurrentUser(null);
+    setConversations([]);
+    setActiveConversationId(null);
+    setMessages([]);
+    setTaskSteps([]);
+    setTaskDiffs([]);
+    setTaskCommands([]);
+    setCurrentGoal('');
+    setWorkspaceTree([]);
     try {
       localStorage.removeItem('neutron_user');
       localStorage.removeItem('neutron_token');

@@ -1,13 +1,18 @@
 {
   "name": "neutron",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "NEUTRON AI - Intelligence in Action",
+  "main": "backend/index.ts",
   "scripts": {
-    "dev": "concurrently -n \"server,client\" -c \"blue,cyan\" \"npx tsx watch server/index.ts\" \"npm run dev --prefix client\"",
-    "server": "npx tsx watch server/index.ts",
+    "dev": "concurrently -n \"backend,client\" -c \"blue,cyan\" \"npm run dev --prefix backend\" \"npm run dev --prefix client\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:client": "npm run dev --prefix client",
+    "backend": "npm run dev --prefix backend",
+    "server": "npm run dev --prefix backend",
     "client": "npm run dev --prefix client",
-    "build": "npm run build --prefix client"
+    "build": "npm run build --prefix client && npm run build --prefix backend",
+    "build:client": "npm run build --prefix client",
+    "build:backend": "npm run build --prefix backend"
   },
   "keywords": [],
   "author": "",

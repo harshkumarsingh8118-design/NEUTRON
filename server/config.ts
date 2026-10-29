@@ -18,6 +18,7 @@ export interface ServerConfig {
   mongodbUri?: string;
   mongodbDatabase: string;
   jwtSecret: string;
+  clientOrigin?: string;
 }
 
 const DEFAULT_WORKSPACE = path.resolve(process.cwd(), 'workspace_sandbox');
@@ -35,9 +36,10 @@ export const config: ServerConfig = {
     nvidiaApiKey: process.env.NVIDIA_API_KEY || '',
     nvidiaBaseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   },
-  activeModel: process.env.NVIDIA_MODEL || process.env.DEFAULT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
-  activeProvider: process.env.DEFAULT_PROVIDER || 'nvidia',
+  activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+  activeProvider: 'nvidia',
   mongodbUri: process.env.MONGODB_URI,
   mongodbDatabase: process.env.MONGODB_DATABASE || 'neutron',
   jwtSecret: process.env.JWT_SECRET || '',
+  clientOrigin: process.env.CLIENT_ORIGIN || undefined,
 };

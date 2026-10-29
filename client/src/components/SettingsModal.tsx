@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Key, FolderCode, Sliders } from 'lucide-react';
+import { X, Sliders } from 'lucide-react';
 import type { AppSettings, ModelProvider } from '../types';
 
 interface SettingsModalProps {
@@ -16,8 +16,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onSave,
 }) => {
-  const [workspaceDir, setWorkspaceDir] = useState(settings.workspaceDir);
-  const [nvidiaKey, setNvidiaKey] = useState('');
   const [autoApproveSafe, setAutoApproveSafe] = useState(settings.autoApproveSafe);
   const [saving, setSaving] = useState(false);
 
@@ -27,8 +25,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setSaving(true);
     try {
       await onSave({
-        workspaceDir,
-        nvidiaKey: nvidiaKey.trim() || undefined,
         autoApproveSafe,
       });
       onClose();
@@ -53,46 +49,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-          {/* Workspace Directory Setting */}
-          <div className="form-group">
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <FolderCode size={14} />
-              <span>Workspace Directory Root</span>
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              value={workspaceDir}
-              onChange={(e) => setWorkspaceDir(e.target.value)}
-              placeholder="e.g. C:\Users\project or ./workspace_sandbox"
-            />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              All file reads, writes, and sandboxed commands are strictly confined within this root.
-            </span>
-          </div>
-
-          {/* API Keys Configuration */}
-          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Key size={14} />
-              <span>NVIDIA NIM API Key (Stored locally on server)</span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div className="form-group">
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>NVIDIA NIM API Key {settings.apiKeySet.nvidia ? ' (Configured ✓)' : ''}</span>
-                  <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active</span>
-                </label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder={settings.apiKeySet.nvidia ? '••••••••••••••••' : 'nvapi-...'}
-                  value={nvidiaKey}
-                  onChange={(e) => setNvidiaKey(e.target.value)}
-                />
-              </div>
-            </div>
+          <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--surface-secondary)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Your account has a private workspace. NVIDIA credentials are configured only through the server environment and are never exposed in the browser.
           </div>
 
           {/* Security and Auto-Approval */}

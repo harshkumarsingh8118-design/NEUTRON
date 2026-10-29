@@ -1,23 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  passwordHash: string;
-  salt: string;
-  role: string;
-  avatarColor: string;
-  createdAt: number;
-}
-
-export type SafeUser = Omit<User, 'passwordHash' | 'salt'>;
-
-export function hashPassword(password: string, salt: string): string {
-  return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-}
 
 export interface ChatMessage {
   id: string;
@@ -45,6 +27,7 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string;
+  userId?: string;
   title: string;
   pinned: boolean;
   createdAt: number;
@@ -88,13 +71,11 @@ export class DataStore {
   private baseDir: string;
   private convFile: string;
   private settingsFile: string;
-  private usersFile: string;
 
   constructor() {
     this.baseDir = path.resolve(process.cwd(), '.neutron');
     this.convFile = path.join(this.baseDir, 'conversations.json');
     this.settingsFile = path.join(this.baseDir, 'settings.json');
-    this.usersFile = path.join(this.baseDir, 'users.json');
     this.ensureInitialized();
   }
 
@@ -108,7 +89,7 @@ export class DataStore {
     if (!fs.existsSync(this.settingsFile)) {
       const defaultSettings: AppSettings = {
         activeProvider: 'nvidia',
-        activeModel: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
+        activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
@@ -118,25 +99,9 @@ export class DataStore {
       };
       fs.writeFileSync(this.settingsFile, JSON.stringify(defaultSettings, null, 2), 'utf8');
     }
-    if (!fs.existsSync(this.usersFile)) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      const defaultUsers: User[] = [
-        {
-          id: 'usr_demo_01',
-          name: 'Alex Mercer',
-          email: 'demo@neutron.ai',
-          passwordHash: hashPassword('password123', salt),
-          salt,
-          role: 'Senior AI Engineer',
-          avatarColor: 'linear-gradient(135deg, #ff6644 0%, #ff8554 100%)',
-          createdAt: Date.now(),
-        },
-      ];
-      fs.writeFileSync(this.usersFile, JSON.stringify(defaultUsers, null, 2), 'utf8');
-    }
   }
 
-  getConversations(): Conversation[] {
+  getAllConversations(): Conversation[] {
     try {
       const data = fs.readFileSync(this.convFile, 'utf8');
       return JSON.parse(data);
@@ -145,17 +110,26 @@ export class DataStore {
     }
   }
 
+  getConversations(userId?: string): Conversation[] {
+    const all = this.getAllConversations();
+    if (!userId) return all;
+    return all.filter((c) => c.userId === userId);
+  }
+
   saveConversations(conversations: Conversation[]) {
     fs.writeFileSync(this.convFile, JSON.stringify(conversations, null, 2), 'utf8');
   }
 
-  getConversation(id: string): Conversation | undefined {
-    const list = this.getConversations();
+  getConversation(id: string, userId?: string): Conversation | undefined {
+    const list = this.getConversations(userId);
     return list.find((c) => c.id === id);
   }
 
-  saveConversation(conv: Conversation): void {
-    const list = this.getConversations();
+  saveConversation(conv: Conversation, userId?: string): void {
+    const list = this.getAllConversations();
+    if (userId) {
+      conv.userId = userId;
+    }
     const idx = list.findIndex((c) => c.id === conv.id);
     conv.updatedAt = Date.now();
     if (idx >= 0) {
@@ -166,9 +140,9 @@ export class DataStore {
     this.saveConversations(list);
   }
 
-  deleteConversation(id: string): boolean {
-    const list = this.getConversations();
-    const filtered = list.filter((c) => c.id !== id);
+  deleteConversation(id: string, userId?: string): boolean {
+    const list = this.getAllConversations();
+    const filtered = list.filter((c) => c.id !== id || (userId && c.userId && c.userId !== userId));
     if (filtered.length !== list.length) {
       this.saveConversations(filtered);
       return true;
@@ -181,7 +155,7 @@ export class DataStore {
       const raw = fs.readFileSync(this.settingsFile, 'utf8');
       const parsed: AppSettings = JSON.parse(raw);
       if (!parsed.activeModel || parsed.activeModel.includes('30b-a3b-reasoning')) {
-        parsed.activeModel = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b';
+        parsed.activeModel = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
       }
       parsed.activeProvider = parsed.activeProvider || 'nvidia';
       parsed.apiKeySet = { nvidia: !!process.env.NVIDIA_API_KEY };
@@ -189,7 +163,7 @@ export class DataStore {
     } catch {
       return {
         activeProvider: 'nvidia',
-        activeModel: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
+        activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
@@ -207,82 +181,4 @@ export class DataStore {
     return updated;
   }
 
-  getUsers(): User[] {
-    try {
-      const raw = fs.readFileSync(this.usersFile, 'utf8');
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
-  }
-
-  saveUsers(users: User[]): void {
-    fs.writeFileSync(this.usersFile, JSON.stringify(users, null, 2), 'utf8');
-  }
-
-  getUserByEmail(email: string): User | undefined {
-    const normalized = email.trim().toLowerCase();
-    return this.getUsers().find((u) => u.email.toLowerCase() === normalized);
-  }
-
-  getUserById(id: string): User | undefined {
-    return this.getUsers().find((u) => u.id === id);
-  }
-
-  toSafeUser(user: User): SafeUser {
-    const { passwordHash, salt, ...safe } = user;
-    return safe;
-  }
-
-  registerUser(name: string, email: string, password: string, role = 'AI Engineer'): SafeUser {
-    const normalized = email.trim().toLowerCase();
-    const existing = this.getUserByEmail(normalized);
-    if (existing) {
-      throw new Error('An account with this email address already exists.');
-    }
-
-    const salt = crypto.randomBytes(16).toString('hex');
-    const passwordHash = hashPassword(password, salt);
-    const colors = [
-      'linear-gradient(135deg, #ff6644 0%, #ff8554 100%)',
-      'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-      'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
-      'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-      'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-    ];
-    const avatarColor = colors[Math.floor(Math.random() * colors.length)];
-
-    const newUser: User = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: name.trim(),
-      email: normalized,
-      passwordHash,
-      salt,
-      role: role.trim() || 'AI Engineer',
-      avatarColor,
-      createdAt: Date.now(),
-    };
-
-    const users = this.getUsers();
-    users.push(newUser);
-    this.saveUsers(users);
-
-    return this.toSafeUser(newUser);
-  }
-
-  authenticateUser(email: string, password: string): { user: SafeUser; token: string } | null {
-    const user = this.getUserByEmail(email);
-    if (!user) {
-      return null;
-    }
-    const hash = hashPassword(password, user.salt);
-    if (hash !== user.passwordHash) {
-      return null;
-    }
-    const token = `ntk_${user.id}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
-    return {
-      user: this.toSafeUser(user),
-      token,
-    };
-  }
 }
