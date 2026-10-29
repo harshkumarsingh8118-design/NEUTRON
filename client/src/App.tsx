@@ -21,7 +21,7 @@ import type {
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
-      const saved = localStorage.getItem('neutron_user');
+      const saved = localStorage.getItem('neutron_user') || sessionStorage.getItem('neutron_user');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -39,16 +39,12 @@ export const App: React.FC = () => {
 
   const [settings, setSettings] = useState<AppSettings>({
     activeProvider: 'nvidia',
-    activeModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+    activeModel: 'nvidia/nemotron-3-ultra-550b-a55b',
     workspaceDir: '',
     theme: 'dark',
     autoApproveSafe: true,
     apiKeySet: {
       nvidia: false,
-      gemini: false,
-      openai: false,
-      anthropic: false,
-      groq: false,
     },
   });
 
@@ -62,13 +58,14 @@ export const App: React.FC = () => {
 
   const abortStreamRef = useRef<(() => void) | null>(null);
 
-  // Initial Data Load
+  // Load protected application data only after the user session is authenticated.
   useEffect(() => {
+    if (!currentUser) return;
     loadSettings();
     loadConversations();
     loadModels();
     loadWorkspace();
-  }, []);
+  }, [currentUser]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -233,6 +230,16 @@ export const App: React.FC = () => {
       toolsCalled: [],
     };
 
+    // Keep local history in sync with the server-side message added by /api/agent/stream.
+    // Without this, the summary handler could overwrite the saved conversation without the prompt.
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === convId
+          ? { ...conversation, messages: [...conversation.messages, userMsg, assistantMsg], updatedAt: Date.now() }
+          : conversation
+      )
+    );
+
     // Immediately update messages in view!
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
 
@@ -262,6 +269,22 @@ export const App: React.FC = () => {
         setIsStreaming(false);
         abortStreamRef.current = null;
         console.error('Streaming error:', err);
+        setMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...last,
+                content: last.content
+                  ? `${last.content}\n\n⚠️ **Error**: ${err.message || 'Stream disconnected'}`
+                  : `⚠️ **Error Encountered**: ${err.message || 'Failed to communicate with AI server'}. Please check your server and connection.`,
+              },
+            ];
+          }
+          return prev;
+        });
       }
     );
 
@@ -372,10 +395,17 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleAuthenticated = (user: AuthUser) => {
+  useEffect(() => {
+    if (!currentUser) return;
+    api.fetchCurrentUser().then(setCurrentUser).catch(() => handleSignOut());
+  }, []);
+
+  const handleAuthenticated = (user: AuthUser, token: string, remember: boolean) => {
     setCurrentUser(user);
     try {
-      localStorage.setItem('neutron_user', JSON.stringify(user));
+      const storage = remember ? localStorage : sessionStorage;
+      storage.setItem('neutron_user', JSON.stringify(user));
+      storage.setItem('neutron_token', token);
     } catch (e) {
       console.error('Failed to save user session:', e);
     }
@@ -385,6 +415,9 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     try {
       localStorage.removeItem('neutron_user');
+      localStorage.removeItem('neutron_token');
+      sessionStorage.removeItem('neutron_user');
+      sessionStorage.removeItem('neutron_token');
     } catch (e) {
       console.error('Failed to clear user session:', e);
     }

@@ -95,10 +95,6 @@ export interface AppSettings {
   autoApproveSafe: boolean;
   apiKeySet: {
     nvidia: boolean;
-    gemini: boolean;
-    openai: boolean;
-    anthropic: boolean;
-    groq: boolean;
   };
 }
 

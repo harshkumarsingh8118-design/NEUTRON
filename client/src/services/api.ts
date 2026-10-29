@@ -9,7 +9,15 @@ import type {
   AuthUser,
 } from '../types';
 
+const authenticatedHeaders = (): HeadersInit => {
+  const token = localStorage.getItem('neutron_token') || sessionStorage.getItem('neutron_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 export const api = {
+  getAuthToken(): string | null {
+    return localStorage.getItem('neutron_token') || sessionStorage.getItem('neutron_token');
+  },
   async login(payload: { email: string; password: string }): Promise<{ user: AuthUser; token: string }> {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
@@ -32,42 +40,50 @@ export const api = {
     return data;
   },
 
-  async guestLogin(): Promise<{ user: AuthUser; token: string }> {
-    const res = await fetch('/api/auth/guest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
+  async fetchCurrentUser(): Promise<AuthUser> {
+    const token = this.getAuthToken();
+    if (!token) throw new Error('No active session');
+    const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to initialize guest session');
-    return data;
+    if (!res.ok) throw new Error(data.error || 'Session is invalid');
+    return data.user;
   },
 
   async fetchConversations(): Promise<Conversation[]> {
-    const res = await fetch('/api/conversations');
+    const res = await fetch('/api/conversations', { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch conversations');
     const data = await res.json();
     return data.conversations || [];
   },
 
   async fetchConversation(id: string): Promise<Conversation> {
-    const res = await fetch(`/api/conversations/${id}`);
+    const res = await fetch(`/api/conversations/${id}`, { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch conversation');
     const data = await res.json();
     return data.conversation;
   },
 
   async saveConversation(conv: Conversation): Promise<void> {
-    await fetch('/api/conversations', {
+    const res = await fetch('/api/conversations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
       body: JSON.stringify(conv),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save conversation');
+    }
   },
 
   async deleteConversation(id: string): Promise<void> {
-    await fetch(`/api/conversations/${id}`, {
+    const res = await fetch(`/api/conversations/${id}`, {
       method: 'DELETE',
+      headers: authenticatedHeaders(),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to delete conversation');
+    }
   },
 
   async fetchWorkspaceTree(): Promise<{
@@ -75,13 +91,13 @@ export const api = {
     tree: FileNode[];
     inspection: ProjectInspection;
   }> {
-    const res = await fetch('/api/workspace/tree');
+    const res = await fetch('/api/workspace/tree', { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch workspace tree');
     return res.json();
   },
 
   async fetchFileContent(filePath: string): Promise<string> {
-    const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(filePath)}`);
+    const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(filePath)}`, { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch file');
     const data = await res.json();
     return data.content;
@@ -90,7 +106,7 @@ export const api = {
   async saveFileContent(filePath: string, content: string): Promise<FileDiff> {
     const res = await fetch('/api/workspace/file', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
       body: JSON.stringify({ path: filePath, content }),
     });
     if (!res.ok) throw new Error('Failed to save file');
@@ -101,7 +117,7 @@ export const api = {
   async searchFiles(query: string, isRegex = false) {
     const res = await fetch('/api/workspace/search', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
       body: JSON.stringify({ query, isRegex }),
     });
     if (!res.ok) throw new Error('Failed to search');
@@ -111,7 +127,7 @@ export const api = {
   async runCommand(command: string, cwd?: string): Promise<CommandResult> {
     const res = await fetch('/api/execute/run', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
       body: JSON.stringify({ command, cwd }),
     });
     if (!res.ok) {
@@ -123,7 +139,7 @@ export const api = {
   },
 
   async fetchSettings(): Promise<AppSettings> {
-    const res = await fetch('/api/settings');
+    const res = await fetch('/api/settings', { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch settings');
     return res.json();
   },
@@ -131,7 +147,7 @@ export const api = {
   async updateSettings(payload: any): Promise<AppSettings> {
     const res = await fetch('/api/settings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Failed to update settings');
@@ -140,7 +156,7 @@ export const api = {
   },
 
   async fetchModels(): Promise<ModelProvider[]> {
-    const res = await fetch('/api/models');
+    const res = await fetch('/api/models', { headers: authenticatedHeaders() });
     if (!res.ok) throw new Error('Failed to fetch models');
     const data = await res.json();
     return data.providers || [];
@@ -169,7 +185,7 @@ export const api = {
       try {
         const response = await fetch('/api/agent/stream', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authenticatedHeaders() },
           body: JSON.stringify(payload),
           signal: activeSignal,
         });

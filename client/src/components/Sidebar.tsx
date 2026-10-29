@@ -59,14 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
   const earlierList = unpinnedList.filter((c) => now - c.updatedAt >= 2 * oneDay);
 
-  // Default sample items if history is empty to match the screenshot!
-  const displayTodayList = todayList.length > 0 ? todayList : [
-    { id: 'sample-1', title: 'Rename legacy vars', pinned: false, createdAt: now, updatedAt: now, model: '', provider: '', messages: [] },
-    { id: 'sample-2', title: 'Refactor auth flow', pinned: false, createdAt: now, updatedAt: now, model: '', provider: '', messages: [] },
-    { id: 'sample-3', title: 'Explain reducer logic', pinned: false, createdAt: now, updatedAt: now, model: '', provider: '', messages: [] },
-    { id: 'sample-4', title: 'Remove warning', pinned: false, createdAt: now, updatedAt: now, model: '', provider: '', messages: [] },
-    { id: 'sample-5', title: 'Clean code check', pinned: false, createdAt: now, updatedAt: now, model: '', provider: '', messages: [] },
-  ];
 
   return (
     <aside className={`neutron-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -89,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Chat count row */}
           <div className="sidebar-chat-badge-row">
             <span>Chat</span>
-            <span className="sidebar-chat-count">{Math.max(14, conversations.length)}</span>
+            <span className="sidebar-chat-count">{conversations.length}</span>
           </div>
 
           {/* New Chat Button with gradient tint and shortcut */}
@@ -130,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {todayOpen && (
                 <div style={{ paddingLeft: '6px' }}>
-                  {displayTodayList.map((c) => (
+                  {todayList.map((c) => (
                     <div
                       key={c.id}
                       className={`conversation-item ${activeConversationId === c.id ? 'active' : ''}`}

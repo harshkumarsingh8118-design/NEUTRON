@@ -14,17 +14,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   settings,
-  providers,
   onSave,
 }) => {
   const [workspaceDir, setWorkspaceDir] = useState(settings.workspaceDir);
-  const [activeProvider, setActiveProvider] = useState(settings.activeProvider);
-  const [activeModel, setActiveModel] = useState(settings.activeModel);
   const [nvidiaKey, setNvidiaKey] = useState('');
-  const [geminiKey, setGeminiKey] = useState('');
-  const [openaiKey, setOpenaiKey] = useState('');
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [groqKey, setGroqKey] = useState('');
   const [autoApproveSafe, setAutoApproveSafe] = useState(settings.autoApproveSafe);
   const [saving, setSaving] = useState(false);
 
@@ -35,13 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       await onSave({
         workspaceDir,
-        activeProvider,
-        activeModel,
         nvidiaKey: nvidiaKey.trim() || undefined,
-        geminiKey: geminiKey.trim() || undefined,
-        openaiKey: openaiKey.trim() || undefined,
-        anthropicKey: anthropicKey.trim() || undefined,
-        groqKey: groqKey.trim() || undefined,
         autoApproveSafe,
       });
       onClose();
@@ -51,8 +38,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSaving(false);
     }
   };
-
-  const selectedProviderObj = providers.find((p) => p.id === activeProvider);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -86,50 +71,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </span>
           </div>
 
-          {/* Model and Provider Setting */}
-          <div className="form-group">
-            <label>Default AI Provider</label>
-            <select
-              className="form-input"
-              value={activeProvider}
-              onChange={(e) => {
-                setActiveProvider(e.target.value);
-                const prov = providers.find((p) => p.id === e.target.value);
-                if (prov && prov.models[0]) {
-                  setActiveModel(prov.models[0].id);
-                }
-              }}
-            >
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.isConfigured ? '✓' : '(No Key)'}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedProviderObj && (
-            <div className="form-group">
-              <label>Default Model</label>
-              <select
-                className="form-input"
-                value={activeModel}
-                onChange={(e) => setActiveModel(e.target.value)}
-              >
-                {selectedProviderObj.models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           {/* API Keys Configuration */}
           <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
             <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Key size={14} />
-              <span>Provider API Keys (Stored locally on server)</span>
+              <span>NVIDIA NIM API Key (Stored locally on server)</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -144,58 +90,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   placeholder={settings.apiKeySet.nvidia ? '••••••••••••••••' : 'nvapi-...'}
                   value={nvidiaKey}
                   onChange={(e) => setNvidiaKey(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>
-                  Google Gemini API Key {settings.apiKeySet.gemini ? ' (Configured ✓)' : ''}
-                </label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder={settings.apiKeySet.gemini ? '••••••••••••••••' : 'AIzaSy...'}
-                  value={geminiKey}
-                  onChange={(e) => setGeminiKey(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>
-                  OpenAI API Key {settings.apiKeySet.openai ? ' (Configured ✓)' : ''}
-                </label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder={settings.apiKeySet.openai ? '••••••••••••••••' : 'sk-...'}
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>
-                  Anthropic API Key {settings.apiKeySet.anthropic ? ' (Configured ✓)' : ''}
-                </label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder={settings.apiKeySet.anthropic ? '••••••••••••••••' : 'sk-ant-...'}
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>
-                  Groq API Key {settings.apiKeySet.groq ? ' (Configured ✓)' : ''}
-                </label>
-                <input
-                  type="password"
-                  className="form-input"
-                  placeholder={settings.apiKeySet.groq ? '••••••••••••••••' : 'gsk_...'}
-                  value={groqKey}
-                  onChange={(e) => setGroqKey(e.target.value)}
                 />
               </div>
             </div>

@@ -18,9 +18,19 @@ export interface ModelProviderInfo {
   isConfigured: boolean;
 }
 
+export const DEFAULT_NVIDIA_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b';
+
+// Validated models on NVIDIA NIM that are active and available for this account
+export const NVIDIA_WORKING_MODELS = [
+  'nvidia/nemotron-3-ultra-550b-a55b',
+  'nvidia/nemotron-3.5-lightning-30b-a3b',
+  'nvidia/nemotron-3.5-super-vl-120b-a12b',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+];
+
 export class AIProviderService {
   /**
-   * Returns list of supported providers and their configuration status
+   * Returns list of supported providers and their models
    */
   static getProviders(): ModelProviderInfo[] {
     return [
@@ -29,56 +39,26 @@ export class AIProviderService {
         name: 'NVIDIA NIM',
         isConfigured: !!config.providers.nvidiaApiKey,
         models: [
-          { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning', name: 'Nemotron 3 Nano Omni 30B (Reasoning)', description: 'NVIDIA reasoning model with chain-of-thought omni capabilities' },
-          { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Llama 3.1 Nemotron 70B', description: 'High-capability instruction model tuned by NVIDIA for complex coding & reasoning' },
-          { id: 'nvidia/nemotron-4-340b-instruct', name: 'Nemotron 4 340B Instruct', description: 'Frontier scale reasoning model for enterprise coding tasks' },
-          { id: 'deepseek-ai/deepseek-v4.1-flash', name: 'DeepSeek v4.1 Flash (NVIDIA NIM)', description: 'Ultra-fast inference speed via NVIDIA NIM architecture' },
-        ],
-      },
-      {
-        id: 'gemini',
-        name: 'Google Gemini',
-        isConfigured: !!config.providers.geminiApiKey,
-        models: [
-          { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Ultra-fast, high capability model for code & reasoning' },
-          { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Extended context window and deep analytical reasoning' },
-          { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Next-gen multimodal reasoning model' },
-        ],
-      },
-      {
-        id: 'openai',
-        name: 'OpenAI',
-        isConfigured: !!config.providers.openaiApiKey,
-        models: [
-          { id: 'gpt-4o', name: 'GPT-4o', description: 'High-intelligence flagship model for multimodal and coding tasks' },
-          { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Fast and lightweight model' },
-        ],
-      },
-      {
-        id: 'anthropic',
-        name: 'Anthropic Claude',
-        isConfigured: !!config.providers.anthropicApiKey,
-        models: [
-          { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Industry benchmark for software engineering and nuanced logic' },
-          { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Ultra-fast responsive coding assistant' },
-        ],
-      },
-      {
-        id: 'groq',
-        name: 'Groq',
-        isConfigured: !!config.providers.groqApiKey,
-        models: [
-          { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)', description: 'Extreme inference speed on Groq LPUs' },
-        ],
-      },
-      {
-        id: 'ollama',
-        name: 'Local Ollama',
-        isConfigured: true,
-        models: [
-          { id: 'llama3:latest', name: 'Llama 3 (Local)', description: 'Locally hosted model via Ollama instance' },
-          { id: 'codellama:latest', name: 'CodeLlama (Local)', description: 'Specialized code generation model' },
-          { id: 'deepseek-coder:latest', name: 'DeepSeek Coder (Local)', description: 'Advanced open-weight coding model' },
+          {
+            id: 'nvidia/nemotron-3-ultra-550b-a55b',
+            name: 'Nemotron 3 Ultra 550B (Frontier Reasoning)',
+            description: 'NVIDIA frontier reasoning model for complex software architecture and deep reasoning.',
+          },
+          {
+            id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+            name: 'Nemotron 3.5 Lightning 30B (Ultra-Fast)',
+            description: 'High-speed reasoning model tuned by NVIDIA for fast interactive chat and coding.',
+          },
+          {
+            id: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+            name: 'Nemotron 3.5 Super VL 120B (Multimodal)',
+            description: 'Advanced omni reasoning and multimodal capabilities for full-stack engineering.',
+          },
+          {
+            id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+            name: 'Nemotron 3 Nano Omni 30B (Reasoning)',
+            description: 'Compact reasoning model with explicit chain-of-thought omni capabilities.',
+          },
         ],
       },
       {
@@ -86,7 +66,11 @@ export class AIProviderService {
         name: 'NEUTRON Built-in Engine',
         isConfigured: true,
         models: [
-          { id: 'neutron-core-agent', name: 'NEUTRON Autonomous Core', description: 'Local autonomous reasoning & verification engine (No API key required)' },
+          {
+            id: 'neutron-core-agent',
+            name: 'NEUTRON Autonomous Core',
+            description: 'Local autonomous reasoning engine (offline fallback).',
+          },
         ],
       },
     ];
@@ -102,381 +86,102 @@ export class AIProviderService {
     model: string,
     callbacks: StreamCallbacks
   ): Promise<string> {
-    let activeProvider = provider || config.activeProvider;
-    let activeModel = model || config.activeModel;
+    const activeProvider = provider || config.activeProvider || 'nvidia';
+    const activeModel = model || config.activeModel || DEFAULT_NVIDIA_MODEL;
 
-    // Prefer NVIDIA NIM if configured or if client requested builtin/default
-    if ((activeProvider === 'neutron-builtin' || !activeProvider) && config.providers.nvidiaApiKey) {
-      activeProvider = 'nvidia';
-      activeModel = config.activeModel || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
-    }
+    // Filter out messages with empty content to prevent provider validation errors
+    const validMessages = messages.filter((m) => m.content && m.content.trim().length > 0);
 
-    // Check if provider is configured, otherwise fallback to builtin
     if (activeProvider === 'nvidia' && config.providers.nvidiaApiKey) {
       try {
-        return await this.streamNvidia(
-          messages,
-          systemPrompt,
-          activeModel,
-          config.providers.nvidiaApiKey,
-          config.providers.nvidiaBaseUrl || 'https://integrate.api.nvidia.com/v1',
-          callbacks
-        );
+        return await this.streamNvidiaWithFailover(validMessages, systemPrompt, activeModel, callbacks);
       } catch (err: any) {
-        console.error('[NEUTRON AI] NVIDIA NIM error:', err.message);
-        callbacks.onChunk(`> ⚠️ **NVIDIA NIM Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`);
-        return this.streamBuiltin(messages, systemPrompt, callbacks);
-      }
-    } else if (activeProvider === 'gemini' && config.providers.geminiApiKey) {
-      try {
-        return await this.streamGemini(messages, systemPrompt, activeModel, config.providers.geminiApiKey, callbacks);
-      } catch (err: any) {
-        console.error('[NEUTRON AI] Gemini error:', err.message);
-        callbacks.onChunk(`> ⚠️ **Gemini Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`);
-        return this.streamBuiltin(messages, systemPrompt, callbacks);
-      }
-    } else if (activeProvider === 'openai' && config.providers.openaiApiKey) {
-      try {
-        return await this.streamOpenAI(messages, systemPrompt, activeModel, config.providers.openaiApiKey, callbacks);
-      } catch (err: any) {
-        console.error('[NEUTRON AI] OpenAI Provider error:', err.message);
-        const isQuota = err.message?.includes('429') || err.message?.includes('insufficient_quota') || err.message?.includes('credit_balance_exhausted');
-        const notice = isQuota
-          ? `> ⚠️ **OpenAI Quota Notice**: Your OpenAI API account has exhausted its credit balance (Error 429). [Add credits at OpenAI Billing](https://platform.openai.com/settings/organization/billing/).\n> *Responding using NEUTRON Built-in Engine:*\n\n---\n\n`
-          : `> ⚠️ **OpenAI Notice**: ${err.message}. *Responding using NEUTRON Built-in Engine:*\n\n---\n\n`;
+        console.error('[NEUTRON AI] NVIDIA NIM error after all retries/failovers:', err.message);
+        const notice = `> ⚠️ **NVIDIA NIM Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`;
         callbacks.onChunk(notice);
-        const fallbackText = await this.streamBuiltin(messages, systemPrompt, callbacks);
+        const fallbackText = await this.streamBuiltin(validMessages, systemPrompt, callbacks);
         return notice + fallbackText;
       }
-    } else if (activeProvider === 'anthropic' && config.providers.anthropicApiKey) {
-      try {
-        return await this.streamAnthropic(messages, systemPrompt, activeModel, config.providers.anthropicApiKey, callbacks);
-      } catch (err: any) {
-        console.error('[NEUTRON AI] Anthropic error:', err.message);
-        callbacks.onChunk(`> ⚠️ **Anthropic Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`);
-        return this.streamBuiltin(messages, systemPrompt, callbacks);
-      }
-    } else if (activeProvider === 'groq' && config.providers.groqApiKey) {
-      try {
-        return await this.streamGroq(messages, systemPrompt, activeModel, config.providers.groqApiKey, callbacks);
-      } catch (err: any) {
-        console.error('[NEUTRON AI] Groq error:', err.message);
-        callbacks.onChunk(`> ⚠️ **Groq Notice**: ${err.message}. *Falling back to NEUTRON Built-in Engine:*\n\n---\n\n`);
-        return this.streamBuiltin(messages, systemPrompt, callbacks);
-      }
-    } else if (activeProvider === 'ollama') {
-      try {
-        return await this.streamOllama(messages, systemPrompt, activeModel, callbacks);
-      } catch {
-        // Fallback to builtin if Ollama is not running locally
-      }
     }
 
-    // Built-in intelligent engine fallback
-    return this.streamBuiltin(messages, systemPrompt, callbacks);
+    if (!config.providers.nvidiaApiKey) {
+      const notice = '> ⚠️ **NVIDIA API Key Required**:\n> Please set `NVIDIA_API_KEY` in `.env` or open Settings (gear icon) to configure your NVIDIA NIM credentials.\n\n---\n\n';
+      callbacks.onChunk(notice);
+      const fallbackText = await this.streamBuiltin(validMessages, systemPrompt, callbacks);
+      return notice + fallbackText;
+    }
+
+    return this.streamBuiltin(validMessages, systemPrompt, callbacks);
   }
 
   /**
-   * Gemini Streaming implementation using official REST API
+   * Streams from NVIDIA NIM with automatic model failover if worker limit (503) or not found (404) occurs
    */
-  private static async streamGemini(
+  private static async streamNvidiaWithFailover(
     messages: ModelMessage[],
     systemPrompt: string,
-    model: string,
-    apiKey: string,
+    preferredModel: string,
     callbacks: StreamCallbacks
   ): Promise<string> {
-    const modelName = model || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const apiKey = config.providers.nvidiaApiKey;
+    if (!apiKey) throw new Error('NVIDIA API Key is missing');
 
-    const contents = messages.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    const baseUrl = (config.providers.nvidiaBaseUrl || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
+    const url = `${baseUrl}/chat/completions`;
 
-    const body = {
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents,
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 8192,
-      },
-    };
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API Error (${response.status}): ${errText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No readable stream from Gemini API');
-
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-          try {
-            const data = JSON.parse(jsonStr);
-            const chunk = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (chunk) {
-              fullText += chunk;
-              callbacks.onChunk(chunk);
-              await new Promise((r) => setTimeout(r, 30));
-            }
-          } catch {
-            // Ignore parse errors on partial chunks
-          }
-        }
-      }
-    }
-
-    if (callbacks.onDone) callbacks.onDone();
-    return fullText;
-  }
-
-  /**
-   * OpenAI Streaming implementation
-   */
-  private static async streamOpenAI(
-    messages: ModelMessage[],
-    systemPrompt: string,
-    model: string,
-    apiKey: string,
-    callbacks: StreamCallbacks
-  ): Promise<string> {
-    const url = 'https://api.openai.com/v1/chat/completions';
-    const formattedMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ];
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || 'gpt-4o',
-        messages: formattedMessages,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI API Error (${response.status}): ${errText}`);
-    }
-
-    return this.readSSEStream(response, callbacks);
-  }
-
-  /**
-   * Groq Streaming implementation
-   */
-  private static async streamGroq(
-    messages: ModelMessage[],
-    systemPrompt: string,
-    model: string,
-    apiKey: string,
-    callbacks: StreamCallbacks
-  ): Promise<string> {
-    const url = 'https://api.groq.com/openai/v1/chat/completions';
-    const formattedMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ];
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || 'llama-3.3-70b-versatile',
-        messages: formattedMessages,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Groq API Error (${response.status}): ${errText}`);
-    }
-
-    return this.readSSEStream(response, callbacks);
-  }
-
-  /**
-   * Anthropic Streaming implementation
-   */
-  private static async streamAnthropic(
-    messages: ModelMessage[],
-    systemPrompt: string,
-    model: string,
-    apiKey: string,
-    callbacks: StreamCallbacks
-  ): Promise<string> {
-    const url = 'https://api.anthropic.com/v1/messages';
-    const formattedMessages = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-3-5-sonnet-20241022',
-        system: systemPrompt,
-        messages: formattedMessages,
-        max_tokens: 4096,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Anthropic API Error (${response.status}): ${errText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No stream available');
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const json = line.slice(6).trim();
-          try {
-            const parsed = JSON.parse(json);
-            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-              const chunk = parsed.delta.text;
-              fullText += chunk;
-              callbacks.onChunk(chunk);
-            }
-          } catch {}
-        }
-      }
-    }
-
-    if (callbacks.onDone) callbacks.onDone();
-    return fullText;
-  }
-
-  /**
-   * Ollama streaming
-   */
-  private static async streamOllama(
-    messages: ModelMessage[],
-    systemPrompt: string,
-    model: string,
-    callbacks: StreamCallbacks
-  ): Promise<string> {
-    const url = `${config.providers.ollamaBaseUrl || 'http://localhost:11434'}/api/chat`;
-    const formattedMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ];
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model || 'llama3:latest',
-        messages: formattedMessages,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Ollama Error (${response.status})`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No stream');
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          const chunk = parsed.message?.content || '';
-          if (chunk) {
-            fullText += chunk;
-            callbacks.onChunk(chunk);
-          }
-        } catch {}
-      }
-    }
-
-    if (callbacks.onDone) callbacks.onDone();
-    return fullText;
-  }
-
-  /**
-   * NVIDIA NIM Streaming implementation with chain-of-thought omni-reasoning support
-   */
-  private static async streamNvidia(
-    messages: ModelMessage[],
-    systemPrompt: string,
-    model: string,
-    apiKey: string,
-    baseUrl: string,
-    callbacks: StreamCallbacks
-  ): Promise<string> {
-    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const formattedMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ];
-
-    const modelName = model || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
-    let response: Response | null = null;
+    // Prioritize preferred model, followed by the known working models
+    const candidateModels = Array.from(new Set([preferredModel, ...NVIDIA_WORKING_MODELS]));
     let lastError: Error | null = null;
-    const maxAttempts = 3;
+
+    for (let i = 0; i < candidateModels.length; i++) {
+      const currentModel = candidateModels[i];
+      try {
+        return await this.streamNvidiaSingleModel(messages, systemPrompt, currentModel, apiKey, url, callbacks);
+      } catch (err: any) {
+        lastError = err;
+        const msg = err.message || '';
+        const isWorkerBusy = msg.includes('503') || msg.includes('ResourceExhausted') || msg.includes('429');
+        const isNotFound = msg.includes('404') || msg.includes('Not Found');
+
+        if ((isWorkerBusy || isNotFound) && i < candidateModels.length - 1) {
+          const nextModel = candidateModels[i + 1];
+          console.warn(`[NVIDIA NIM] Model ${currentModel} error (${msg}). Auto-failing over to ${nextModel}...`);
+          continue;
+        }
+
+        // If it's an auth error (401/403) or no more candidates, rethrow
+        throw err;
+      }
+    }
+
+    throw lastError || new Error('Failed to connect to NVIDIA NIM');
+  }
+
+  /**
+   * Executes a streaming request for a single NVIDIA model with retry logic
+   */
+  private static async streamNvidiaSingleModel(
+    messages: ModelMessage[],
+    systemPrompt: string,
+    modelName: string,
+    apiKey: string,
+    url: string,
+    callbacks: StreamCallbacks
+  ): Promise<string> {
+    const formattedMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+
+    const maxAttempts = 2;
+    let response: Response | null = null;
+    let lastErr: Error | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s timeout
+
         response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -490,7 +195,10 @@ export class AIProviderService {
             max_tokens: 4096,
             stream: true,
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           break;
@@ -498,16 +206,19 @@ export class AIProviderService {
 
         const errText = await response.text();
         if ((response.status === 503 || response.status === 429) && attempt < maxAttempts) {
-          console.warn(`[NVIDIA NIM] Worker busy/rate-limit (${response.status}) on attempt ${attempt}/${maxAttempts}. Retrying in 1.5s...`);
-          await new Promise((r) => setTimeout(r, 1500));
+          console.warn(`[NVIDIA NIM] Worker busy (${response.status}) on ${modelName}, retrying in 1s...`);
+          await new Promise((r) => setTimeout(r, 1000));
           continue;
         }
 
-        throw new Error(`NVIDIA NIM API Error (${response.status}): ${errText}`);
+        throw new Error(`NVIDIA NIM API error (${response.status}): ${errText}`);
       } catch (err: any) {
-        lastError = err;
-        if (attempt < maxAttempts && !err.message?.includes('401') && !err.message?.includes('403')) {
-          await new Promise((r) => setTimeout(r, 1500));
+        lastErr = err;
+        if (err.name === 'AbortError') {
+          throw new Error(`NVIDIA NIM request timed out after 35s for model ${modelName}`);
+        }
+        if (attempt < maxAttempts && !err.message?.includes('401') && !err.message?.includes('403') && !err.message?.includes('404')) {
+          await new Promise((r) => setTimeout(r, 1000));
           continue;
         }
         throw err;
@@ -515,14 +226,15 @@ export class AIProviderService {
     }
 
     if (!response || !response.ok) {
-      throw lastError || new Error('Failed to connect to NVIDIA NIM');
+      throw lastErr || new Error(`Failed response from NVIDIA NIM for model ${modelName}`);
     }
 
     return this.readNvidiaStream(response, callbacks);
   }
 
   /**
-   * SSE reader for NVIDIA NIM with support for both reasoning_content and content deltas
+   * SSE reader for NVIDIA NIM with support for both reasoning_content and content deltas,
+   * plus detection of in-stream error payloads.
    */
   private static async readNvidiaStream(response: Response, callbacks: StreamCallbacks): Promise<string> {
     const reader = response.body?.getReader();
@@ -533,24 +245,35 @@ export class AIProviderService {
     let buffer = '';
     let inReasoning = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
           const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') continue;
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+
           try {
             const data = JSON.parse(jsonStr);
+
+            // Check for in-stream error object returned by NVIDIA NIM
+            if (data.error) {
+              const errMsg = typeof data.error === 'string'
+                ? data.error
+                : data.error.message || JSON.stringify(data.error);
+              throw new Error(`NVIDIA stream error: ${errMsg}`);
+            }
+
             const delta = data.choices?.[0]?.delta;
             if (!delta) continue;
 
-            // Handle reasoning delta (e.g. from Nemotron reasoning models)
+            // Handle reasoning delta (chain-of-thought from Nemotron reasoning models)
             if (delta.reasoning_content) {
               if (!inReasoning) {
                 inReasoning = true;
@@ -574,79 +297,65 @@ export class AIProviderService {
               fullText += delta.content;
               callbacks.onChunk(delta.content);
             }
-          } catch {
-            // Ignore parse errors on incomplete chunks
+          } catch (parseErr: any) {
+            if (parseErr.message?.startsWith('NVIDIA stream error:')) {
+              throw parseErr;
+            }
+            // Ignore incomplete SSE chunk JSON parse errors
           }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
 
-    if (callbacks.onDone) callbacks.onDone();
+    // If stream ended while still in reasoning block, close it cleanly
+    if (inReasoning) {
+      const separator = '\n\n---\n\n';
+      fullText += separator;
+      callbacks.onChunk(separator);
+    }
+
+    if (!fullText.trim()) {
+      throw new Error('NVIDIA NIM returned an empty response. Worker may have terminated early.');
+    }
+
+    callbacks.onDone?.();
     return fullText;
   }
 
   /**
-   * Generic SSE reader for OpenAI format
-   */
-  private static async readSSEStream(response: Response, callbacks: StreamCallbacks): Promise<string> {
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No readable stream from API');
-
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') continue;
-          try {
-            const data = JSON.parse(jsonStr);
-            const chunk = data.choices?.[0]?.delta?.content || data.choices?.[0]?.delta?.reasoning_content || '';
-            if (chunk) {
-              fullText += chunk;
-              callbacks.onChunk(chunk);
-              await new Promise((r) => setTimeout(r, 25));
-            }
-          } catch {}
-        }
-      }
-    }
-
-    if (callbacks.onDone) callbacks.onDone();
-    return fullText;
-  }
-
-  /**
-   * Built-in fallback engine - routes to NVIDIA NIM if available
+   * Built-in fallback engine for offline or unconfigured states.
+   * Generates helpful, structured conversational responses without crashing.
    */
   private static async streamBuiltin(
     messages: ModelMessage[],
-    systemPrompt: string,
+    _systemPrompt: string,
     callbacks: StreamCallbacks
   ): Promise<string> {
-    if (config.providers.nvidiaApiKey) {
-      return this.streamNvidia(
-        messages,
-        systemPrompt,
-        config.activeModel || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-        config.providers.nvidiaApiKey,
-        config.providers.nvidiaBaseUrl || 'https://integrate.api.nvidia.com/v1',
-        callbacks
-      );
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.content || 'Hello';
+    const lower = lastUserMsg.toLowerCase().trim();
+
+    let reply = '';
+
+    if (/^(hi|hello|hey|greetings|howdy|sup)\b/i.test(lower)) {
+      reply = `Hey there! 👋 I am **NEUTRON**, your AI companion and coding partner.\n\nHow can I help you today? You can ask me questions, paste code for review, or use the **Coding Agent** mode to build and execute projects in your workspace.`;
+    } else if (lower.includes('who are you') || lower.includes('about you') || lower.includes('what can you do')) {
+      reply = `I am **NEUTRON**, an intelligent software engineering partner and AI assistant powered by **NVIDIA NIM**.\n\n### What I Can Do:\n- **Conversational Assistant**: Answer questions, explain concepts, and brainstorm architecture.\n- **Autonomous Coding Agent**: Inspect your workspace files, generate production code with diffs, and run verification commands in a sandbox.\n- **NVIDIA AI Models**: Powered by NVIDIA's frontier Nemotron reasoning models.\n\nFeel free to ask a technical question or tell me what you'd like to build!`;
+    } else if (lower.includes('python') || lower.includes('code') || lower.includes('javascript') || lower.includes('function')) {
+      reply = `Here is how you can approach that:\n\n\`\`\`python\n# Example implementation\ndef solve():\n    print("Ready to implement solution in workspace.")\n\nif __name__ == "__main__":\n    solve()\n\`\`\`\n\nTo have me automatically generate, edit, and run this code in your project workspace, switch to **Coding agent** mode in the top header.`;
+    } else {
+      reply = `I received your request: *"${lastUserMsg.slice(0, 100)}"*.\n\nTo get live AI responses powered by NVIDIA NIM, please ensure your \`NVIDIA_API_KEY\` is active in \`.env\` or configured in the **Settings** modal.`;
     }
 
-    const notice = `⚠️ **No Active AI Provider Configured**\n\nPlease configure your **NVIDIA API Key** in \`.env\` or the Settings panel to receive live responses from \`${config.activeModel}\`.`;
-    callbacks.onChunk(notice);
-    if (callbacks.onDone) callbacks.onDone();
-    return notice;
+    // Stream the built-in reply smoothly
+    const words = reply.split(' ');
+    for (const word of words) {
+      callbacks.onChunk(word + ' ');
+      await new Promise((r) => setTimeout(r, 15));
+    }
+
+    callbacks.onDone?.();
+    return reply;
   }
 }

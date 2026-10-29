@@ -130,11 +130,19 @@ Personality & Tone Guidelines:
 - If the user expresses frustration, confusion, or shares a problem, be empathetic and supportive ("No worries at all, bugs happen to all of us! Let's solve it together.").
 - Format code and technical explanations cleanly in GitHub-flavored markdown.`;
 
-    const modelMessages: ModelMessage[] = conversation.messages.slice(-8).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    modelMessages.push({ role: 'user', content: userPrompt });
+    const rawHistory = conversation.messages.slice(-8);
+    const lastIsSameUser = rawHistory.length > 0 &&
+      rawHistory[rawHistory.length - 1].role === 'user' &&
+      rawHistory[rawHistory.length - 1].content.trim() === userPrompt.trim();
+
+    const historyToUse = lastIsSameUser ? rawHistory : [...rawHistory, { role: 'user' as const, content: userPrompt, id: '', timestamp: 0 }];
+
+    const modelMessages: ModelMessage[] = historyToUse
+      .filter((m) => m.content && m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
     let fullAnswer = '';
     await AIProviderService.streamCompletion(
@@ -232,11 +240,19 @@ FILE: filename.ext
 RUN: <command, e.g. python script.py or node app.js>
 5. Provide a summary explaining how the solution works and how to test it.`;
 
-    const modelMessages: ModelMessage[] = conversation.messages.slice(-6).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    modelMessages.push({ role: 'user', content: userPrompt });
+    const rawHistory = conversation.messages.slice(-6);
+    const lastIsSameUser = rawHistory.length > 0 &&
+      rawHistory[rawHistory.length - 1].role === 'user' &&
+      rawHistory[rawHistory.length - 1].content.trim() === userPrompt.trim();
+
+    const historyToUse = lastIsSameUser ? rawHistory : [...rawHistory, { role: 'user' as const, content: userPrompt, id: '', timestamp: 0 }];
+
+    const modelMessages: ModelMessage[] = historyToUse
+      .filter((m) => m.content && m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
     let aiGeneratedResponse = '';
     try {

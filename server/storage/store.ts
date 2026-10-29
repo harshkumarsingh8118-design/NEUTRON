@@ -81,10 +81,6 @@ export interface AppSettings {
   autoApproveSafe: boolean;
   apiKeySet: {
     nvidia: boolean;
-    gemini: boolean;
-    openai: boolean;
-    anthropic: boolean;
-    groq: boolean;
   };
 }
 
@@ -111,17 +107,13 @@ export class DataStore {
     }
     if (!fs.existsSync(this.settingsFile)) {
       const defaultSettings: AppSettings = {
-        activeProvider: process.env.DEFAULT_PROVIDER || (process.env.NVIDIA_API_KEY ? 'nvidia' : 'gemini'),
-        activeModel: process.env.DEFAULT_MODEL || (process.env.NVIDIA_MODEL || (process.env.NVIDIA_API_KEY ? 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' : 'gemini-2.5-flash')),
+        activeProvider: 'nvidia',
+        activeModel: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
         apiKeySet: {
           nvidia: !!process.env.NVIDIA_API_KEY,
-          gemini: !!process.env.GEMINI_API_KEY,
-          openai: !!process.env.OPENAI_API_KEY,
-          anthropic: !!process.env.ANTHROPIC_API_KEY,
-          groq: !!process.env.GROQ_API_KEY,
         },
       };
       fs.writeFileSync(this.settingsFile, JSON.stringify(defaultSettings, null, 2), 'utf8');
@@ -188,26 +180,21 @@ export class DataStore {
     try {
       const raw = fs.readFileSync(this.settingsFile, 'utf8');
       const parsed: AppSettings = JSON.parse(raw);
-      if (process.env.NVIDIA_API_KEY && (parsed.activeProvider === 'neutron-builtin' || !parsed.activeProvider)) {
-        parsed.activeProvider = 'nvidia';
-        parsed.activeModel = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
-        parsed.apiKeySet = { ...parsed.apiKeySet, nvidia: true };
-        this.saveSettings(parsed);
+      if (!parsed.activeModel || parsed.activeModel.includes('30b-a3b-reasoning')) {
+        parsed.activeModel = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b';
       }
+      parsed.activeProvider = parsed.activeProvider || 'nvidia';
+      parsed.apiKeySet = { nvidia: !!process.env.NVIDIA_API_KEY };
       return parsed;
     } catch {
       return {
-        activeProvider: process.env.DEFAULT_PROVIDER || (process.env.NVIDIA_API_KEY ? 'nvidia' : 'gemini'),
-        activeModel: process.env.DEFAULT_MODEL || (process.env.NVIDIA_MODEL || (process.env.NVIDIA_API_KEY ? 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' : 'gemini-2.5-flash')),
+        activeProvider: 'nvidia',
+        activeModel: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
         workspaceDir: path.resolve(process.cwd(), 'workspace_sandbox'),
         theme: 'dark',
         autoApproveSafe: true,
         apiKeySet: {
           nvidia: !!process.env.NVIDIA_API_KEY,
-          gemini: !!process.env.GEMINI_API_KEY,
-          openai: !!process.env.OPENAI_API_KEY,
-          anthropic: !!process.env.ANTHROPIC_API_KEY,
-          groq: !!process.env.GROQ_API_KEY,
         },
       };
     }
@@ -299,4 +286,3 @@ export class DataStore {
     };
   }
 }
-

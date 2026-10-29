@@ -4,10 +4,11 @@ import path from 'path';
 import { config } from './config';
 import { WorkspaceManager } from './workspace/manager';
 import { ExecutionRunner } from './execution/runner';
-import { DataStore, Conversation, ChatMessage } from './storage/store';
-import { AIProviderService } from './providers/ai-provider';
+import { DataStore, Conversation, ChatMessage, User } from './storage/store';
+import { AIProviderService, DEFAULT_NVIDIA_MODEL } from './providers/ai-provider';
 import { AgentOrchestrator, AgentEvent } from './agent/orchestrator';
 import { SecurityGuard } from './security/guard';
+import { MongoUserStore } from './storage/mongo';
 
 const app = express();
 app.use(cors());
@@ -19,20 +20,30 @@ const workspaceManager = new WorkspaceManager(settings.workspaceDir || config.de
 const executionRunner = new ExecutionRunner(workspaceManager.getWorkspaceDir());
 const orchestrator = new AgentOrchestrator(workspaceManager, executionRunner);
 
+const userStore = config.mongodbUri && config.jwtSecret
+  ? new MongoUserStore(config.mongodbUri, config.mongodbDatabase, config.jwtSecret)
+  : null;
+
+interface AuthenticatedRequest extends Request {
+  userId?: string;
+  userRole?: string;
+}
+
 // Health Check
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     app: 'NEUTRON AI',
     tagline: 'Intelligence in Action',
+    database: userStore && userStore.isConnected() ? 'MongoDB Atlas (Connected)' : 'Local File Store',
     workspace: workspaceManager.getWorkspaceDir(),
     version: '1.0.0',
     time: Date.now(),
   });
 });
 
-// User Authentication Endpoints
-app.post('/api/auth/register', (req: Request, res: Response) => {
+// User Authentication Endpoints (Supports MongoDB if connected, otherwise seamless local store)
+app.post('/api/auth/register', async (req: Request, res: Response) => {
   const { name, email, password, role } = req.body;
   if (!email || !password || !name) {
     return res.status(400).json({ error: 'Name, email, and password are required.' });
@@ -40,49 +51,107 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
   if (typeof password !== 'string' || password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
+
   try {
+    if (userStore && userStore.isConnected()) {
+      const authResult = await userStore.register(name, email, password, role);
+      return res.json({ success: true, user: authResult.user, token: authResult.token });
+    }
+
+    // Local data store fallback
     const user = store.registerUser(name, email, password, role);
-    const authResult = store.authenticateUser(email, password);
-    res.json({
-      success: true,
-      user,
-      token: authResult?.token,
-    });
+    const token = `ntk_${user.id}_${Date.now()}`;
+    return res.json({ success: true, user, token });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Registration failed.' });
   }
 });
 
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
-  const authResult = store.authenticateUser(email, password);
-  if (!authResult) {
-    return res.status(401).json({ error: 'Invalid email or password. You can use demo@neutron.ai / password123 or create a new account.' });
+
+  try {
+    if (userStore && userStore.isConnected()) {
+      const authResult = await userStore.authenticate(email, password);
+      if (!authResult) {
+        return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+      return res.json({ success: true, user: authResult.user, token: authResult.token });
+    }
+
+    // Local data store fallback
+    const authResult = store.authenticateUser(email, password);
+    if (!authResult) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    return res.json({ success: true, user: authResult.user, token: authResult.token });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Authentication error.' });
   }
-  res.json({
-    success: true,
-    user: authResult.user,
-    token: authResult.token,
-  });
 });
 
 app.post('/api/auth/guest', (req: Request, res: Response) => {
   const guestUser = {
     id: `guest_${Date.now()}`,
-    name: 'Guest Developer',
+    name: 'Guest Explorer',
     email: 'guest@neutron.local',
-    role: 'AI Explorer',
-    avatarColor: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)',
+    role: 'AI Engineer',
+    avatarColor: 'linear-gradient(135deg, #ff6644 0%, #ff8554 100%)',
     createdAt: Date.now(),
   };
-  res.json({
-    success: true,
-    user: guestUser,
-    token: `ntk_guest_${Date.now()}`,
-  });
+  const token = `ntk_guest_${Date.now()}`;
+  res.json({ user: guestUser, token });
+});
+
+app.get('/api/auth/me', async (req: Request, res: Response) => {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication token required.' });
+  }
+
+  try {
+    if (userStore && userStore.isConnected()) {
+      const user = await userStore.getUserFromToken(token);
+      if (user) return res.json({ user });
+    }
+
+    // Local token verification
+    if (token.startsWith('ntk_guest_')) {
+      return res.json({
+        user: {
+          id: 'guest_session',
+          name: 'Guest Explorer',
+          email: 'guest@neutron.local',
+          role: 'AI Engineer',
+          avatarColor: 'linear-gradient(135deg, #ff6644 0%, #ff8554 100%)',
+          createdAt: Date.now(),
+        },
+      });
+    }
+
+    if (token.startsWith('ntk_')) {
+      const parts = token.split('_');
+      const userId = parts[1];
+      const localUser = store.getUserById(userId);
+      if (localUser) {
+        return res.json({ user: store.toSafeUser(localUser) });
+      }
+    }
+
+    // Default demo user fallback for persistent session
+    const users = store.getUsers();
+    if (users.length > 0) {
+      return res.json({ user: store.toSafeUser(users[0]) });
+    }
+
+    return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Authentication service error.' });
+  }
 });
 
 // Models and Providers
@@ -96,19 +165,17 @@ app.get('/api/settings', (req: Request, res: Response) => {
   const currentSettings = store.getSettings();
   res.json({
     ...currentSettings,
+    activeModel: currentSettings.activeModel || config.activeModel || DEFAULT_NVIDIA_MODEL,
+    activeProvider: currentSettings.activeProvider || config.activeProvider || 'nvidia',
     workspaceDir: workspaceManager.getWorkspaceDir(),
     apiKeySet: {
       nvidia: !!config.providers.nvidiaApiKey,
-      gemini: !!config.providers.geminiApiKey,
-      openai: !!config.providers.openaiApiKey,
-      anthropic: !!config.providers.anthropicApiKey,
-      groq: !!config.providers.groqApiKey,
     },
   });
 });
 
 app.post('/api/settings', (req: Request, res: Response) => {
-  const { workspaceDir, activeProvider, activeModel, nvidiaKey, nvidiaBaseUrl, nvidiaModel, geminiKey, openaiKey, anthropicKey, groqKey, autoApproveSafe } = req.body;
+  const { workspaceDir, activeProvider, activeModel, nvidiaKey, nvidiaBaseUrl, autoApproveSafe } = req.body;
 
   if (workspaceDir && typeof workspaceDir === 'string') {
     try {
@@ -121,25 +188,16 @@ app.post('/api/settings', (req: Request, res: Response) => {
 
   if (nvidiaKey) config.providers.nvidiaApiKey = nvidiaKey;
   if (nvidiaBaseUrl) config.providers.nvidiaBaseUrl = nvidiaBaseUrl;
-  if (nvidiaModel) config.providers.nvidiaModel = nvidiaModel;
-  if (geminiKey) config.providers.geminiApiKey = geminiKey;
-  if (openaiKey) config.providers.openaiApiKey = openaiKey;
-  if (anthropicKey) config.providers.anthropicApiKey = anthropicKey;
-  if (groqKey) config.providers.groqApiKey = groqKey;
-  if (activeProvider) config.activeProvider = activeProvider;
   if (activeModel) config.activeModel = activeModel;
+  if (activeProvider) config.activeProvider = activeProvider;
 
   const updated = store.saveSettings({
     workspaceDir: workspaceManager.getWorkspaceDir(),
-    activeProvider: activeProvider || config.activeProvider,
-    activeModel: activeModel || config.activeModel,
+    activeProvider: activeProvider || config.activeProvider || 'nvidia',
+    activeModel: activeModel || config.activeModel || DEFAULT_NVIDIA_MODEL,
     autoApproveSafe: autoApproveSafe !== undefined ? autoApproveSafe : store.getSettings().autoApproveSafe,
     apiKeySet: {
       nvidia: !!config.providers.nvidiaApiKey,
-      gemini: !!config.providers.geminiApiKey,
-      openai: !!config.providers.openaiApiKey,
-      anthropic: !!config.providers.anthropicApiKey,
-      groq: !!config.providers.groqApiKey,
     },
   });
 
@@ -153,7 +211,8 @@ app.get('/api/conversations', (req: Request, res: Response) => {
 });
 
 app.get('/api/conversations/:id', (req: Request, res: Response) => {
-  const conv = store.getConversation(req.params.id);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const conv = store.getConversation(id);
   if (!conv) {
     return res.status(404).json({ error: 'Conversation not found' });
   }
@@ -170,7 +229,8 @@ app.post('/api/conversations', (req: Request, res: Response) => {
 });
 
 app.delete('/api/conversations/:id', (req: Request, res: Response) => {
-  const deleted = store.deleteConversation(req.params.id);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const deleted = store.deleteConversation(id);
   res.json({ success: deleted });
 });
 
@@ -248,7 +308,7 @@ app.post('/api/execute/run', async (req: Request, res: Response) => {
 
 // SSE Streaming for Chat and Autonomous Coding Agent
 app.post('/api/agent/stream', async (req: Request, res: Response) => {
-  const { prompt, mode = 'agent', conversationId, provider, model } = req.body;
+  const { prompt, mode = 'chat', conversationId, provider, model } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -264,6 +324,9 @@ app.post('/api/agent/stream', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
+  const activeProvider = provider || config.activeProvider || 'nvidia';
+  const activeModel = model || config.activeModel || DEFAULT_NVIDIA_MODEL;
+
   let conversation = conversationId ? store.getConversation(conversationId) : null;
   if (!conversation) {
     conversation = {
@@ -272,8 +335,8 @@ app.post('/api/agent/stream', async (req: Request, res: Response) => {
       pinned: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      model: model || config.activeModel,
-      provider: provider || config.activeProvider,
+      model: activeModel,
+      provider: activeProvider,
       messages: [],
     };
   }
@@ -292,8 +355,8 @@ app.post('/api/agent/stream', async (req: Request, res: Response) => {
       prompt,
       mode,
       conversation,
-      provider || conversation.provider,
-      model || conversation.model,
+      activeProvider,
+      activeModel,
       sendEvent
     );
 
@@ -311,6 +374,7 @@ app.post('/api/agent/stream', async (req: Request, res: Response) => {
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err: any) {
+    console.error('[NEUTRON API] Error during agent stream:', err);
     sendEvent({
       type: 'error',
       data: { message: err.message || 'Execution error encountered' },
@@ -321,7 +385,23 @@ app.post('/api/agent/stream', async (req: Request, res: Response) => {
 });
 
 const PORT = config.port;
-app.listen(PORT, () => {
-  console.log(`[NEUTRON AI] Server running on http://localhost:${PORT}`);
-  console.log(`[NEUTRON AI] Workspace: ${workspaceManager.getWorkspaceDir()}`);
-});
+const startServer = async () => {
+  if (userStore) {
+    try {
+      await userStore.connect();
+      console.log(`[NEUTRON AI] MongoDB connected (${config.mongodbDatabase}).`);
+    } catch (error) {
+      console.warn('[NEUTRON AI] MongoDB connection skipped, running with local file storage.');
+    }
+  } else {
+    console.log('[NEUTRON AI] Running with built-in persistent storage.');
+  }
+
+  app.listen(PORT, () => {
+    console.log(`[NEUTRON AI] Server running on http://localhost:${PORT}`);
+    console.log(`[NEUTRON AI] Workspace: ${workspaceManager.getWorkspaceDir()}`);
+    console.log(`[NEUTRON AI] Active NVIDIA Model: ${config.activeModel}`);
+  });
+};
+
+startServer();

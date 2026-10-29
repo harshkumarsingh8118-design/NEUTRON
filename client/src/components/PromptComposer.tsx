@@ -186,7 +186,7 @@ export const PromptComposer: React.FC<PromptComposerProps> = ({
                           flexDirection: 'column',
                         }}
                       >
-                    <span style={{ fontWeight: 600 }}>{m.name}{!p.isConfigured && p.id !== 'ollama' && p.id !== 'neutron-builtin' ? ' · add API key in Settings' : ''}</span>
+                    <span style={{ fontWeight: 600 }}>{m.name}{!p.isConfigured ? ' · add API key in Settings' : ''}</span>
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{p.name}</span>
                       </button>
                     ))
