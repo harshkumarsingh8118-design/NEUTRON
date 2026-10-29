@@ -1,12 +1,14 @@
 # Dependencies
 node_modules
 client/node_modules
+backend/node_modules
 
 # Environment variables & secrets
 .env
 .env.local
 .env.*.local
 *.env
+backend/.env
 
 # Local state & data
 .neutron/conversations.json
@@ -17,6 +19,7 @@ client/node_modules
 # Build artifacts
 dist
 client/dist
+backend/dist
 build
 
 # Sandbox runtime scratchpad
